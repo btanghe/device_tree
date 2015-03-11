@@ -17,7 +17,9 @@ struct dts_example {
 	struct device *dev;
 	void __iomem *base;
 	void __iomem *base_of;
+	void __iomem *base_node;
 	struct clk *clk;
+	struct clk *clk_node;
 	const struct of_device_id *match;		//zynq tutorial
 	struct device_node *node;
 };
@@ -28,19 +30,14 @@ static const struct of_device_id dts_example_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, dts_example_of_match);
 
-//static inline struct dts_example *to_dts_example(struct dts_example *chip)
-//{
-//	return container_of(chip, struct dts_example, chip);
-//}
 int dts_example_probe(struct platform_device *pdev)
 {
 	struct dts_example *pc;
-	struct resource *res,*res_of;
-	const struct property *custom_prop;
+	struct resource *res,*res_of,*res_node;
+	const void *custom_prop;
 
 	int rc = 0;
-	
-	
+
         printk("Devicetree function examples\n");
 
 	pc = devm_kzalloc(&pdev->dev, sizeof(*pc), GFP_KERNEL);
@@ -55,64 +52,113 @@ int dts_example_probe(struct platform_device *pdev)
 	if (!res_of)
 		return -ENOMEM;
 
-	custom_prop = kmalloc(sizeof(struct property), GFP_KERNEL);
-	if (!custom_prop)
+	res_node = kmalloc(sizeof(struct resource), GFP_KERNEL);
+	if (!res_node)
 		return -ENOMEM;
 
 	pc->dev = &pdev->dev;
 
 	pc->match = of_match_device(dts_example_of_match, &pdev->dev);
 	pc->node = of_find_matching_node(NULL,pc->match);
-
 	if (!pc->match)
 		return -EINVAL;
+	
+	printk("pc->node: '%s' - pdev->dev.of_node: '%s' - pc->node: '%s'\n",pc->node->name,pdev->dev.of_node->name,pc->node->name);
 
-	//get resources - 2 possibility's
-
+	//get resources - 3 possibility's
+	//pdev
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
 	printk("resource start %x end %x\n",res->start,res->end);
 
-	pc->base = devm_ioremap_resource(&pdev->dev, res);
-	if (IS_ERR(pc->base))
-		return PTR_ERR(pc->base);
-
+	//pdev->dev.of_node
 	rc = of_address_to_resource(pdev->dev.of_node, 0, res_of);
   	if (rc) {
-    		/* Fail */
-  	}
-
-  	if  (!request_mem_region(res_of->start, resource_size(res_of), "dts-example")) {
-    		/* Fail */
+    		printk("of_address_to_resource res_of failed\n");
   	}
 
 	printk("resource start %x end %x\n",res_of->start,res_of->end);
 
-  	pc->base_of = of_iomap(pdev->dev.of_node, 0);
-
-  	if (pc->base_of) {
-    		/* Fail */
+	//pc->node
+	rc = of_address_to_resource(pc->node, 0, res_node);
+  	if (rc) {
+    		printk("of_address_to_resource res_node failed\n");
   	}
+
+	printk("resource start %x end %x\n",res_node->start,res_node->end);
+
+	//ioremap resources
+	//pdev
+
+	/*Comment - devm_ioremap_resource doesn't need request_mem_region (is done in the function itself)
+	http://lxr.free-electrons.com/source/lib/devres.c#L123*/
+	
+	pc->base = devm_ioremap_resource(&pdev->dev, res);
+
+	if (IS_ERR(pc->base))
+		printk("pdev->dev ioremap failed\n");
+	
+	//pdev->dev.of_node
+  	if  (!request_mem_region(res_of->start, resource_size(res_of), "dts-example")) {
+    		printk("request_mem_region res_of failed,already in use\n");
+  	}
+	else {
+	  	pc->base_of = of_iomap(pdev->dev.of_node, 0);
+
+	  	if (IS_ERR(pc->base_of))
+			printk("pdev->dev.of_node ioremap failed\n");
+	}
+
+	//pc->node
+  	if  (!request_mem_region(res_node->start, resource_size(res_node), "dts-example")) {
+    		printk("request_mem_region res_node failed,already in use\n");
+  	}
+	else {
+	  	pc->base_node = of_iomap(pc->node, 0);
+
+	  	if (IS_ERR(pc->base_of))
+			printk("pc->node ioremap failed\n");
+	}
 
 	//get clk description
 
-	/*pc->clk = devm_clk_get(&pdev->dev, NULL);
+	pc->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(pc->clk)) {
-		dev_err(&pdev->dev, "clock not found: %ld\n", PTR_ERR(pc->clk));
 		return PTR_ERR(pc->clk);
-	}*/
+	}
+	printk("clock property: %ld\n",clk_get_rate(pc->clk));
 
-	custom_prop = of_get_property(pc->node,"custom_var",NULL);
+	pc->clk_node = of_clk_get(pc->node, 0);
+	if (IS_ERR(pc->clk_node)) {
+		return PTR_ERR(pc->clk_node);
+	}
+	printk("clock property: %ld\n",clk_get_rate(pc->clk_node));
 
-	printk("property name %s\n",custom_prop->name);
-	printk("property value %x\n",(int)custom_prop->value);
+	// get custom property description
 
+	custom_prop = of_get_property(pdev->dev.of_node,"custom-var",NULL);
+
+	if (!custom_prop) {
+    		printk("no property in dtb\n");
+  	}
+	else{
+		//be32_to_cpup big<->little endian compatible
+		printk("property value %x\n",be32_to_cpup(custom_prop));
+	}
+	platform_set_drvdata(pdev, pc);
+	
    	return 0;		// A non 0 return means init_module failed; module can't be loaded.
 }
 
 static int dts_example_remove(struct platform_device *pdev)
 {
+	struct dts_example *pc;
+	
 	printk("Remove devicetree function example\n");
+	pc  = platform_get_drvdata(pdev);
+
+	//pc will not be used in this remove function
+
 	return 0;
 }
 
