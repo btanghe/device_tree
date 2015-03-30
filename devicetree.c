@@ -44,10 +44,6 @@ int dts_example_probe(struct platform_device *pdev)
 	if (!pc)
 		return -ENOMEM;
 
-	pc = devm_kzalloc(&pdev->dev, sizeof(*pc), GFP_KERNEL);
-	if (!pc)
-		return -ENOMEM;
-
 	res_of = kmalloc(sizeof(struct resource), GFP_KERNEL);
 	if (!res_of)
 		return -ENOMEM;
