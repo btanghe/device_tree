@@ -139,6 +139,7 @@ int dts_example_probe(struct platform_device *pdev)
   	}
 	else{
 		//be32_to_cpup big<->little endian compatible
+		//device tree is in big endian format 
 		printk("property value %x\n",be32_to_cpup(custom_prop));
 	}
 	platform_set_drvdata(pdev, pc);
